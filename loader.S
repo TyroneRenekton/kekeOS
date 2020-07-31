@@ -113,7 +113,16 @@ p_mode_start:
 
 	mov byte [gs:160], 'V'
 
-	jmp $
+	mov eax, KERNEL_START_SECTOR
+	mov ebx, KERNEL_BIN_BASE_ADDR
+	mov ecx, 200
+
+	call rd_disk_m_32
+
+	call kernel_init
+
+	mov esp, 0xc009f000
+	jmp KERNEL_ENTRY_POINT
 
 setup_page:
 	mov ecx, 4096
@@ -161,4 +170,97 @@ setup_page:
 	add eax, 0x1000
 	loop .create_other_pde
 	
+	ret
+
+kernel_init:
+	xor eax, eax
+	xor ebx, ebx
+	xor ecx, ecx
+	xor edx, edx
+
+	mov dx, [KERNEL_BIN_BASE_ADDR + 42]
+	mov ebx, [KERNEL_BIN_BASE_ADDR + 28]
+
+	add ebx, KERNEL_BIN_BASE_ADDR
+	mov cx, [KERNEL_BIN_BASE_ADDR + 44]
+
+.each_segment:
+	cmp byte[ebx + 0], PT_NULL
+	
+	je .PTNULL
+
+	push dword [ebx + 16]
+	mov eax, [ebx + 4]
+	add eax, KERNEL_BIN_BASE_ADDR
+	push eax
+	push dword [ebx + 8]	
+	call mem_cpy
+	add esp, 12
+
+.PTNULL:
+	add ebx, edx
+	loop .each_segment
+	ret
+
+mem_cpy:
+	cld
+	push ebp
+	mov ebp, esp
+	push ecx
+	mov edi, [ebp+8]
+	mov esi, [ebp+12]
+	mov ecx, [ebp+16]
+	rep movsb
+
+	pop ecx
+	pop ebp
+	ret	
+
+rd_disk_m_32:
+	mov esi, eax
+	mov di, cx
+
+	mov dx, 0x1f2
+	mov al, cl
+	out dx, al
+	mov eax, esi
+	
+	mov dx, 0x1f3
+	out dx, al
+	
+	mov cl, 8
+	shr eax, cl
+	mov dx, 0x1f4
+	out dx, al
+
+	shr eax, cl
+	mov dx, 0x1f5
+	out dx, al
+	
+	shr eax, cl
+	and al, 0x0f
+	or al, 0xe0
+	mov dx, 0x1f6
+	out dx, al
+
+	mov dx, 0x1f7
+	mov al, 0x20
+	out dx, al
+
+.not_ready:
+	nop
+	in al, dx
+	and al, 0x88
+	cmp al, 0x08
+	jnz .not_ready
+	mov ax, di
+	mov dx, 256
+	mul dx
+	mov cx, ax
+	mov dx, 0x1f0
+.go_on_read:
+	in ax, dx
+	mov [ebx], ax
+	add ebx, 2
+	loop .go_on_read
 	ret
